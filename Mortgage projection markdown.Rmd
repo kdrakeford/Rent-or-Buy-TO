@@ -1,18 +1,41 @@
+---
+title: "Rent or Buy Projections"
+author: "Keith"
+date: "June 1, 2018"
+output: html_document
+---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Rent or buy?
+
+The purpose of this script is to determine which is the better long-term financial decision: purchase property in Toronto or just rent (and invest the money that would have gone towards the cost of the mortgage and owning property).
+
+Two data sources are used for this analysis:
+<ul>
+<li>Toronto housing price index</li>
+<li>S&P TSE Composite Index</li>
+</ul>
+
+Initialization:
+
+```{r init}
 library(tidyverse)
 
 setwd("C:/Users/keith/Documents/R/R Projects")
 #source("multiplot.R") #Loads multiplot function formerly included in ggplot2
 source("Mortgage projection/Mortgage function.R")
 
-#Function to provide a prompt and receive an integer input from the user
+#Function to provide a prompt and receive an integer input from the user:
 readinteger <- function(query)
 { 
     n <- readline(prompt=query)
     return(as.integer(n))
 }
 
-#Function to provide a prompt and receive an integer input from the user:
+#Function to calculate the costs of selling property:
 sell_cost <- function(prop_val) {
                 return(500 #legal fees
                 + 0.04*prop_val #agent commission, 4%
@@ -20,10 +43,58 @@ sell_cost <- function(prop_val) {
                 + 1000) #staging
 }
 
+hpi <- as.data.frame(read.csv("Mortgage projection/HPI.csv"))
+tsxi <- as.data.frame(read.csv("Mortgage projection/SP_TSX annual.csv"))
+tsxi <- tsxi[, c(1:5)]
 
-# Parameters --------------------------------------------------------------
+hpi$Growth <-  as.numeric(gsub('%', '', hpi$HPI_adj_for_infl))/100
+tsxi$Growth <- as.numeric(gsub('%', '', tsxi$TSX_adj_for_infl))/100 #converts % to decimal
+```
 
-use_defaults <- cat("Default values for this simulation are:
+These are the the first few years of our datasets: 
+```{r show_data}
+head(hpi) #Housing Price Index
+head(tsxi) #TSX annual returns
+```
+
+## Methodology
+
+This analysis compares two scenarios:
+
+<ul>
+<li>Buy: This represents buying a home with a mortgage. Costs include the down payment, mortgage interest, maintenance, utilities, home insurance, and property taxes. </li>
+
+<li>Rent & Invest: The same amount of money that would have been spent on the costs in the "own" scenario are instead invested. Costs in this scenario are rent, utilities, and renter's insurance. </li>
+</ul>
+
+The objective is to see what the total value of the property or investment is after 25 years, minus 25 years of costs. This script will run simulations of each scenario, and compare the results. These simulations will increase the property or investment value each year for 25 years to reflect market changes. These changes will be simulated using a historical housing price index (for Toronto house prices), and by the S&P/TSX Composite Index.
+
+But what rate of growth should be assumed for each year? Using the mean historical annual growth rate has an number of issues. First, applying a mean growth rate of x% to an investment each year over and over again will provide different outcomes than applying different growth rates each year, even if the mean of those rates works out to x% (e.g. an investment that grows 5% two years in a row will be worth more than an investment that is devalued 5% one year but grows 15% the next). Second, the mean may not necessarily be a "typical" growth rate - there could be a very even distribution of historical annual growth rates ranging from high to low, or even clustered at points above and below the mean, making the mean a not-very-probably rate after all. 
+
+To get around these problems, this analysis randomly samples historical annual growth rates from the respective price indexes for each of the 25 years in the scenario to simulate one possible outcome after 25 years. This process is repeated 1000 times. The end result is a probability distribution of future outcomes. This will provide a sense of what investment and property values can be reasonably expected after 25 years, and with what degree of likelihood. 
+
+## Caveats
+
+Before we get started, we should be aware of a few limitations in this anlaysis (including some pretty major ones):
+<ol>
+<li>Past market performance does not predict future performance. Unfortunately, this is exactly what is done in this analysis - using historical stock market and real estate returns to simulate possible future outcomes. Consider this analysis only slightly more useful than comparing mean real estate growth to mean stock market returns and calling it a day. </li>
+<li>The "rent and invest" scenario doesn't take into account reinvested dividends. </li>
+<li>This scenario assumes the amount invested in the "rent and invest" scenario is exactly the cost of maintaining a mortgage and of owning a condo. Realistically, one may not be discliplined enough to save and invest this money rather than spending it. Having a mortgage has the advantage of forcing you to invest in your home's equity. </li>
+<li>This model assumes each years' growth rates are independent of each other. In other words, it does not account for the fact that a bad economic downturn will mean multiple years in a row of poor growth. </li>
+<li>This model also assumes that housing prices move independantly of stock market prices. Without this assumption, we can't compare random simulations of one with random simulations of the other. If they are linked (let's say stock market growth links directly to housing price growth), then in a simulation in which the stock market performs well would also result in a high-performing real estate market, and it would not be realistic to compare the stock market simulation with a random housing price simulation. This assumption is validated at the end of this script. </li>
+<li> For simplicity, this model does not look at variations in mortgage interest rates. </li>
+</ol>
+
+## Starting Assumptions
+
+The following code inputs the scenario assumptions. The down payment (or initial investment) and purchase price are particularly important. In this scenario the down payment is assumed to be \$80,000 and the purchase price is \$400,000 (avoiding extra mortgage costs by keeing the downpayment 20% of the property price). This means that for the rent/invest scenario, \$80k will be the starting investment. Rent is assumed to be \$1800 per month, and condo fees assumed to be $500/month. Costs of selling assume 4% broker fee and 2% land transfer tax. 
+
+Note that I have not researched whether a condo worth $400K can be rented for $1800/month, and so the two scenarios may not be accurately comparing the same size/quality of home being lived in. The values I used here have more to do with what I would choose personally - I wouldn't be interested in buying the type of place currently going for less than \$400K, and I may in the future be willing to pay \$1800 for the right place.
+
+Note: If the R code is run line by line, there will be an option to input values other than the defaults. 
+
+```{r parameters}
+cat("Default values for this simulation are:
 downpayment = $80,000
 prop_price = $400,000
 condo_fees = $500/month
@@ -36,8 +107,8 @@ rent = $1,600/month
 Index fund fees = 1% \n\n
 ")
 
-#If script is run line-by-line, this provides an opportunity to
-# input other values for the simulation. 
+#If run line-by-line, this provides an opportunity to input other values
+# for the simulation. 
 use_defaults <- readline("Use default values? Enter y or n: ")
 
 if (use_defaults != 'n') {
@@ -66,7 +137,7 @@ if (use_defaults == 'n') {
 }
 
 prop_tax <- prop_price*0.006355 #Rounded Toronto residential property tax rate
-mortgage(prop_price - inv, 5, 25, plotData = F)
+mortgage(prop_price - inv, 5, 25, plotData = F) #Calculates mortgage payments and interest
 buy_cost <- (1800) #legal fees)
 own_cost_25 <- #Ownership costs over 25 years, not including mortgage interest
   (condo_fees + maintenance + o_ins + o_util + prop_tax) * 25
@@ -78,15 +149,13 @@ ann_inv <-
                                             # on maintaining the mortgage/condo
 
 
-# Data load ---------------------------------------------------------------
+```
 
-hpi <- as.data.frame(read.csv("Mortgage projection/HPI.csv"))
-tsxi <- as.data.frame(read.csv("Mortgage projection/SP_TSX annual.csv"))
-tsxi <- tsxi[, c(1:5)]
+## Historical Returns
 
-hpi$Growth <-  as.numeric(gsub('%', '', hpi$HPI_adj_for_infl))/100
-tsxi$Growth <- as.numeric(gsub('%', '', tsxi$TSX_adj_for_infl))/100 #converts % to decimal
+Since our simulations depend on the relative performance of the Toronto real estate market versus the stock market, lets compare their distribution and median. The histogram below shows there relative performance. The dark horizontal bars are the range in which 90% of observations fall.
 
+```{r returns_hist}
 #Histogram of hpi and tsxi
 hpi$Type <- 'hpi'
 tsxi$Type <- 'tsxi'
@@ -95,9 +164,6 @@ q_x_hpi <- c(quantile(hpi$Growth, c(0.05, 0.95)))
 q_x_tsxi <- c(quantile(tsxi$Growth, c(0.05, 0.95)))
 q_hpi_range <- data.frame(cbind(q_x_hpi, c(1, 1)))
 q_tsxi_range <- data.frame(cbind(q_x_tsxi, c(1, 1)))
-
-
-# Returns Histogram -------------------------------------------------------
 
 return_comp <- rbind(hpi[, c("Year", "Growth", "Type")], tsxi[, c("Year", "Growth", "Type")])
 ggplot() + 
@@ -130,9 +196,19 @@ ggplot() +
          hpi = "test") +
     scale_x_continuous(name = "Annual growth", labels = scales::percent)
 
+```
 
-# "Buy" Simulation --------------------------------------------------------
+We can see that the stock market has performed better historically. But there is also greater variability in annual returns, and this means less certainty of what our investment will be worth after 25 years compared to the real estate market. Better performance also does not mean better final outcome. The property value of \$400,000 appreciates each year in the "buy" scenario, and a gain of 3% or 4% on that is worth much more than a 7% increase in the \$80,000 investment in the "rent" scenario. 
 
+## Simulations
+
+To get a clearer idea of what the financial outlook would be after 25 years, we need to run our simulations.
+
+The code below randomly samples year-over-year housing price index change from the HPI dataset and applies that value to the property value for each year in the 25-year mortgage period. This is repeated 1000 times. The property value each year for all 1000 simulations is stored in a dataframe, and the final value in each simulation is stored in a vector. Note that after 25 years, costs associated with selling a home are also applied. (Note there is is some messy code that stores the final result before applying these selling costs, and some messy code that stores the median of each year across all 1000 simulations, in order to visualize a timeline later on.)
+
+You'll notice throughout this analysis that the "buy" scenario vectors tend to have names with "equ" or sometimes just "e" (for "equity"). 
+
+```{r equ_sim}
 #Simulation of property equity based on samples from hpi
 sim_equ <- NULL  #make sure to run this before loop to reset sim
 equ_log <- data.frame(Year = c(seq(from=2018, to=2043)))
@@ -146,7 +222,7 @@ for (i2 in c(1:1000)) {
   for (i3 in c(1:(length(sample_hpi)+1))) {
       if (i3 > 1) {#Don't apply the growth on the first year (want to record the original value)
           val <- val*(1+sample_hpi[i3-1])
-      }
+          } 
       equ_log[i3, i2+1] <- val #records the value for each year of each simulation
   }
   sim_equ_gross <- c(sim_equ_gross, val)
@@ -167,7 +243,7 @@ equ_yr <- cbind(equ_yr,
     Ttl_int = c(0, cumsum(aDFyear$Annual_Interest)),
     Cost = c(0, -1 * own_cost_25/25*(equ_yr$Year[-1] - 2019 + 1) - cumsum(aDFyear$Annual_Interest)),
     Equ_net = c(equ_yr$Equity[1], 
-                equ_yr$Equity[-1] - own_cost_25/25*(equ_yr$Year[-1] - 2019 + 1) 
+                equ_yr$Equity[-1] - own_cost_25/25*(equ_yr$Year[-1] - 2019 + 1)
                     - cumsum(aDFyear$Annual_Interest)),
     Equ_low_85 = c(equ_yr$Equity[1], apply(equ_log, 1, quantile, probs = 0.05)[-1]
                     - own_cost_25/25*(equ_yr$Year[-1] - 2019 + 1) - cumsum(aDFyear$Annual_Interest)),
@@ -175,10 +251,13 @@ equ_yr <- cbind(equ_yr,
                     - own_cost_25/25*(equ_yr$Year[-1] - 2019 + 1) - cumsum(aDFyear$Annual_Interest))
 )
 equ_yr$Equity[length(equ_yr$Equity)] = equ_yr$Equity[length(equ_yr$Equity)] + median(sell_cost(sim_equ_gross))
+```
 
+The same process is executed for the "rent/invest" scenario, but using stock market growth (minus the fees defined in our starting assumptions). The amount saved by renting instead of owning (thus avoiding mortgage interest and condo fees) is added to the investment each year. 
 
-# "Rent" Simulation -------------------------------------------------------
+Throughout this analysis, "rent/invest" scenario vectors usually have "inv" or "i" in the names. 
 
+```{r inv_sim}
 # Applying sampled annual returns to a starting investment
 sim_inv <- NULL #make sure to run this to reset the sim
 inv_log <- data.frame(Year = c(seq(from=2018, to=2043)))
@@ -190,7 +269,7 @@ for (i3 in c(1:1000)) {
     sample_tsxi <- sample(tsxi$Growth, 25, replace = TRUE)
     for (i4 in c(1:(length(sample_tsxi)+1))) {
         if (i4 > 1) { #Don't apply the growth on the first year (want to record the original value)
-            prpl <- (prpl*(1+sample_tsxi[i4-1]-inv_fees) + ann_inv) #Invest the $ saved by not having a mortgage
+            prpl <- (prpl*(1+sample_tsxi[i4-1]-inv_fees) + ann_inv) #Invest the $ saved by not having mortgage
             }
         inv_log[i4, i3+1] <- prpl #records the value for each year of each simulation
     }
@@ -208,7 +287,14 @@ inv_yr <- cbind(inv_yr,
     Inv_high_85 = c(inv_yr$Investment[1], apply(inv_log, 1, quantile, probs = 0.95)[-1]
                     - rent_cost_25/25*(inv_yr$Year[-1] - 2019 + 1))
 )
+```
 
+
+##Results
+
+The histogram below shows the results of our 2000 simulations. The results will vary significantly depending on the starting parameters, but in our simulation using the default paramters, the results are remarkably identical. 
+
+``` {r combined_hist}
 #Combined histogram - investment vs equity simulations:
 inv_df <- c()
 equ_df <- c()
@@ -216,9 +302,6 @@ inv_df <- as.data.frame(sim_inv)
 colnames(inv_df) <- c('mean')
 equ_df <- as.data.frame(sim_equ)
 colnames(equ_df) <- c('mean')
-
-
-# Results Histogram -------------------------------------------------------
 
 #Combine both datasets into one data frame. Add column "sim" to distinguish
 # between which dataset each row came from. 
@@ -261,10 +344,11 @@ com_hist <- com_hist +
                fill = "")
 
 com_hist
+```
 
+Let's take a look at how the two scenarios compare over time: When does the value of the rent scneario investment catch up to the value of the property value of the buy scenario? The timline below shows the median value of all 1000 simulations for each year of each scenario. The shaded areas is the range that 90% of simulations fell within.
 
-# Results Timelines -------------------------------------------------------
-
+``` {r sim timlines}
 #Timeline of property/investment value
 timeline <- merge(equ_yr, inv_yr)
 ggplot(data = timeline, aes(timeline)) + 
@@ -285,14 +369,21 @@ ggplot(data = timeline, aes(timeline)) +
     scale_colour_manual(name = NULL, 
                         values =c('Buy'='#F8766D','Rent'='#00BFC4'), labels = c('Buy','Rent')) +
     labs(title="Timeline of Simulations")
+```
 
-#Timeline with the median total value of the home/investment before costs
+We can see from this that cost of selling the property (mainly the ~4% broker fees and 2% land transfer tax) tips the scales in favour of renting. 
+
+Surprisingly, the propery value appreciation is all but cancelled out by the cost of the mortgage and condo fees. Note that the cost of mortage interest (calculated for each year at the beginning of this script using the mortgage() function) starts high in the in the first few years and decreases to 0 by the end of 25 years. Mortgage interest is one of the costs of ownership that is subtracted from the property value in order to compare the value of the simulations, and so this has a big impact at the beginning of the simulations. Condo fees play a huge role in cancelling out the property value appreciation - try running this script again without condo fees, and you'll see a much outcome for the "buy" scenarios (note that doing so also means that less in invested in the rent scenario: the amount invetsed each year is set to the difference between ownership costs and rental costs, so smaller ownership costs means a smaller difference to be invested.)
+
+The impact of the costs in each scenario can be seen by comparing just the investment and property values over time: 
+
+```{r value timeline - no cost}
 ggplot(data = timeline, aes(timeline)) + 
     geom_line(aes(x = Year, y = Equity/1000, colour = "Buy", linetype = "Asset Value"), size = 1) + 
     geom_line(aes(x = Year, y = Equ_net/1000, colour = "Buy", linetype = "Net Value"), size = 1) + 
     geom_line(aes(x = Year, y = Investment/1000, colour = "Rent", linetype = "Asset Value"), size = 1) +
     geom_line(aes(x = Year, y = Inv_net/1000, colour = "Rent", linetype = "Net Value"), size = 1) + 
-    scale_y_continuous(limits = c(0, NA), name = "Median Simulation Value, Thousands", 
+    scale_y_continuous(limits = c(0, NA), name = "Median Simulation Value, Thousands",
                        labels = scales::comma) +
     scale_x_continuous(limits = c(min(timeline$Year), max(timeline$Year)+1), name = NULL) +
     geom_text(aes(label = paste(round(tail(Equ_net, 1)/1000, 0), "K"),
@@ -311,57 +402,38 @@ ggplot(data = timeline, aes(timeline)) +
     scale_colour_manual(name = NULL, values =c('Buy'='#F8766D','Rent'='#00BFC4'), labels = c('Buy','Rent')) +
     labs(title="Timeline of Simulations - With and Without Costs")
 
+```
 
-# Miscellaneous -----------------------------------------------------------
 
+Another way to compare the results of our scenarios is to ask "In how many of the  1000 simulations did renting outperform buying?"
+
+In the code pairs each rent and buy simulation and counts how many times the rent scenario was the better choice. 
+
+```{r sim comparison count}
 #In how many simulations did rent outperform buy?
 sim_comp <- c()
 sim_comp <- data.frame(cbind(equ_df[, 1], inv_df[, 1]))
 colnames(sim_comp) <- c("equ", "inv")
 sim_comp$equ_better <- c(sim_comp$equ < sim_comp$inv)
 sum(sim_comp$equ_better)
+```
 
-#Lets go back to historical performance - what would have been the best choice in each year 
-# since 1981 (the ealiest date we have TSX data)?
+## Assumption validation
 
-hpi$HPI_Growth <- hpi$Growth
-tsxi$TSXI_Growth <- tsxi$Growth
+Are stock prices and real estate prices truly independent?
 
-rw_df <- merge(hpi[, c("Year", "HPI_Growth")], 
-               tsxi[, c("Year", "TSXI_Growth")], 
-               all.y = T) 
-rw_equ <- NULL
-rw_inv <- NULL
-loop_test <- NULL
-for (i in c(1:(2017-1980-25))) {    # Loop will run 12 times, the number of different 25-year 
-    val = prop_price                # time frames between 1980 and 2017.
-    prpl = inv
-    for (i2 in c(1:25)) {
-        real_hpi = rw_df[i-1+i2, "HPI_Growth"]
-        real_tsxi = rw_df[i-1+i2, "TSXI_Growth"]
-        val <- val*(1+real_hpi)
-        prpl <- prpl*(1+real_tsxi-inv_fees) + ann_inv
-        loop_test <- rbind(loop_test, c(1979+i, i, i2, real_hpi, val, real_tsxi, prpl))
-    }
-    rw_equ <- c(rw_equ, val - own_cost_25)
-    rw_inv <- c(rw_inv, prpl - rent_cost_25 - sum(aDFyear$Annual_Interest))
-}
-
-rw_sim <- data.frame(cbind(c(1980:1991), rw_equ, rw_inv, "Diff" = round(rw_inv - rw_equ, 0)))
-
-#Comparion of equ outcomes without interest
-ggplot(data = timeline, aes(timeline)) + 
-    geom_line(aes(x = Year, y = Equ_net/1000), colour = "#F8766D", size = 1) + 
-    geom_line(aes(x = Year, y = Inv_net/1000), colour = "#00BFC4", size = 1) +
-    geom_line(aes(x = Year, y = Equity/1000), colour = "#F8766D", size = 1, linetype = "dashed") + 
-    geom_line(aes(x = Year, y = Equ_no_inrst/1000), colour = "#f4a8a1", size = 1, linetype = "dotted") + 
-    geom_line(aes(x = Year, y = Equ_no_others/1000), colour = "#f2afa9", size = 1, linetype = "dashed") + 
-    scale_y_continuous(limits = c(0, NA), name = "Value, thousands", labels = scales::comma)
-
-# Assumption tests:
+```{r random price validation}
 #Test whether HPI an TSX fluctuations are correlated:
 cor.test(
   tsxi$Growth, 
   hpi$Growth[c( #gets just the HPI years that overlap with TSX_Growth
     (length(hpi$HPI) - length(tsxi$Growth) + 1):length(hpi$HPI)
   )])
+```
+
+## Data notes and sources:
+<ul>
+<li>Inflation is geometrically backed out of the price changes for each year using data from the Bank of Canada. </li>
+<li>Data for the TSX Index starts in 1980, and can be found here:
+https://ca.finance.yahoo.com/quote/%5EGSPTSE/history?period1=299476800&period2=1523764800&interval=1mo&filter=history&frequency=1mo (the change between December from one year to the next was used as the annual change. This methodology was cross-referenced with data available here for the overlapping years http://www.1stock1.com/1stock1_766.htm:)
+<li>Toronto Housing Price Index data goes back to 1964, and well, was eyeballed from a chart on this page: http://www.torontohomes-for-sale.com/Toronto-average-real-estate-property-prices.html. This data seems to align with data for more reputable sources for recent years. </li>
